@@ -1,6 +1,14 @@
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio 2012
+# Visual Studio 15
+VisualStudioVersion = 15.0.26730.12
+MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "libdist", "libdist.vcxproj", "{1F764EAA-2BA3-4F24-BBFA-CBE278892ADF}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{ADDE2121-3E9B-4BEF-A5CD-7B1429750684}"
+	ProjectSection(SolutionItems) = preProject
+		.editorconfig = .editorconfig
+		libdist.ini = libdist.ini
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -15,5 +23,8 @@ Global
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {521903D8-9980-442C-A9B3-11DD20D6AD8B}
 	EndGlobalSection
 EndGlobal

@@ -2,31 +2,40 @@
 History
 --------
 02/29/2004 -
-* initial version
+	* Initial version
 03/15/2004 -
-* fix: now it will not create reference of non existing files
-* add: support for positive depth reference
+	! now it will not create reference of non existing files
+	* add: support for positive depth reference
 05/13/2005 -
-* 0.1.2
-* add: added conditional directive to allow using of STDAFX if needed (for precompiled headers support)
+	* 0.1.2
+	+ add: added conditional directive to allow using of STDAFX if needed (for precompiled headers support)
 04/07/2008
-* 0.1.3
-* fix: trim_str() was choking on empty string input when compiled with VC8
-* added display count of warning and errors
+	* 0.1.3
+	! trim_str() was choking on empty string input when compiled with VC8
+	+ display the count of warning and errors
 
-ToDo
+09/02/2017
+	* 0.1.4
+	+ added verbose switch
+    ! fixed parsing error where empty modules were being added to the modules map
+    ! report an error when no files related to a module are found and acted upon
+	* cleaning up and refactoring
+
+TODO
 -------
-. Allow adding a comment to the beginning of the file saying the date the file was last released
-. Add copying of .hpp files as well
+	* Allow adding a comment to the beginning of the file saying the date the file was last released
+	* Add Unicode support
 */
 
 #include "libdist.h"
-module_map_t g_modules;
+static module_map_t g_modules;
+static bool g_b_verbose = false;
 
-const int module_extensions_cnt = 4;
-constexpr char *libdistversion = "libdist v0.1.3 (" __DATE__ " " __TIME__") ";
+constexpr char *libdistversion = "libdist v0.1.4 (" __DATE__ " " __TIME__") ";
+#define PATHSEP_CHAR '\\'
 int g_nWarning = 0, g_nError = 0;
 
+//-------------------------------------------------------------------------
 enum action_types_e
 {
     at_make,
@@ -34,47 +43,62 @@ enum action_types_e
     at_hardlink
 };
 
-static const char *module_extensions[module_extensions_cnt] =
+//-------------------------------------------------------------------------
+static const char *module_extensions[] =
 {
     ".h", ".cpp", ".hpp", ".c"
 };
 
-// adds a backslash to path name
+#define MODULE_EXTENSIONS_COUNT (sizeof(module_extensions)/sizeof(module_extensions[0]))
+
+//-------------------------------------------------------------------------
+// Adds a backslash to path name
 void fix_path(std::string &path)
 {
-    if (path[path.length() - 1] != '\\')
-        path = path + '\\';
+    if (!path.empty() && path[path.length() - 1] != PATHSEP_CHAR)
+        path = path + PATHSEP_CHAR;
 }
 
-void fix_path_distance(string refereed_path, string referent, string &fixed)
+//-------------------------------------------------------------------------
+bool is_absolute_path(string &path)
 {
-    // fix pathes
-    fix_path(refereed_path);
+	return (path.substr(1, 2) == ":\\") || (path[0] == PATHSEP_CHAR);
+}
+
+//-------------------------------------------------------------------------
+void fix_path_distance(
+	string referred_path, 
+	string referent, 
+	string &fixed)
+{
+    // fix paths
+    fix_path(referred_path);
     fix_path(referent);
 
     // if path starts with current path designator then remove it
     if (referent.substr(0, 2) == ".\\")
         referent = referent.substr(2);
 
-    if (refereed_path.substr(0, 2) == ".\\")
-        refereed_path = refereed_path.substr(2);
+    if (referred_path.substr(0, 2) == ".\\")
+        referred_path = referred_path.substr(2);
 
     // accessing absolute path?
-    if ((refereed_path.substr(1, 2) == ":\\") || (refereed_path[0] == '\\'))
+    if (is_absolute_path(referred_path))
     {
-        fixed = refereed_path;
+        fixed = referred_path;
         return;
     }
 
-    // positive depth
+    // positive depth (going upwards in the tree)
     if (referent.substr(0, 2) != "..")
     {
         int depth(0);
         char *p = (char *)referent.c_str();
         while (*p)
         {
-            if (*p == '\\')
+            if (*p == PATHSEP_CHAR)
                 depth++;
+
             p++;
         }
 
@@ -82,7 +106,7 @@ void fix_path_distance(string refereed_path, string referent, string &fixed)
         for (int i = 0; i<depth; i++)
             fixed = fixed + "..\\";
 
-        fixed = fixed + refereed_path;
+        fixed = fixed + referred_path;
     }
     // negative depth (such as ..\test\blah\)
     else
@@ -94,21 +118,25 @@ void fix_path_distance(string refereed_path, string referent, string &fixed)
 
         // not supported yet
     }
-    return;
 }
 
+//-------------------------------------------------------------------------
 // checks if a file exists
 bool file_exists(const char *fn)
 {
     ifstream f(fn);
     if (!f)
-        return false;
+	{
+		return false;
+	}
     else
     {
         f.close();
         return true;
     }
 }
+
+//-------------------------------------------------------------------------
 // trims white spaces from left and right of a string
 void trim_str(string &str)
 {
@@ -144,7 +172,7 @@ void trim_str(string &str)
     str = str.substr(i, j - i);
 }
 
-
+//-------------------------------------------------------------------------
 // copies a binary file
 bool copy_file(const char *src, const char *dest)
 {
@@ -182,6 +210,7 @@ bool copy_file(const char *src, const char *dest)
     return true;
 }
 
+//-------------------------------------------------------------------------
 // parses module file name
 bool parse_module_file(const char *modulefilename)
 {
@@ -210,7 +239,8 @@ bool parse_module_file(const char *modulefilename)
         // is it a comment line?
         if (line[0] == ';')
         {
-            cout << "[!] skipping comment line " << line_no << endl;
+			if (g_b_verbose)
+				cout << "[!] skipping comment line " << line_no << endl;
             continue;
         }
 
@@ -237,22 +267,38 @@ bool parse_module_file(const char *modulefilename)
 
             if ((last_reference.length() == 0) || (last_path.length() == 0))
             {
-                cout << "[!] module encountered but no path and reference were ready!" << endl;
+                cout << "[!] module encountered but no path and reference were previously defined!" << endl;
                 continue;
             }
+
             cout << "[i] found module: '" << module << "'" << endl;
+            g_modules[last_path][last_reference].push_back(module);
         }
-        g_modules[last_path][last_reference].push_back(module);
     }
 
     f.close();
     return true;
 }
 
+//-------------------------------------------------------------------------
+void create_hardlink(string &reffile, string &pathfile)
+{
+	std::string cmd;
+
+	if (file_exists(reffile.c_str()))
+	{
+		cmd = "del " + reffile;
+		system(cmd.c_str());
+	}
+	cmd = "fsutil hardlink create \"" + reffile + "\" \"" + pathfile + "\">nul";
+	system(cmd.c_str());
+}
+
+//-------------------------------------------------------------------------
 // releases or makes module files
 void act_upon_modules(int nActType)
 {
-    if (g_modules.size() == 0)
+    if (g_modules.empty())
     {
         cout << "[!] no modules to make!" << endl;
         return;
@@ -284,37 +330,42 @@ void act_upon_modules(int nActType)
                 module = lst.back();
                 lst.pop_back();
 
-                for (int i = 0; i<module_extensions_cnt; i++)
+                int not_found_count = 0;
+
+                for (auto ext: module_extensions)
                 {
-                    reffile = reference + module + module_extensions[i];
-                    pathfile = path + module + module_extensions[i];
-                    fixed_pathfile = fixed_path + module + module_extensions[i];
+                    reffile = reference + module + ext;
+                    pathfile = path + module + ext;
+                    fixed_pathfile = fixed_path + module + ext;
+
+                    // The input path should exist
+                    if (!file_exists(pathfile.c_str()))
+                    {
+                        ++g_nWarning;
+                        ++not_found_count;
+
+                        if (g_b_verbose)
+                            cout << "[!] path file " << pathfile << " not found" << endl;
+
+                        continue;
+                    }
 
                     // make references
                     if (nActType == at_make)
                     {
-                        if (!file_exists(pathfile.c_str()))
-                        {
-                            cout << "[!] will not create reference non existing file: " << pathfile.c_str() << endl;
-                            g_nWarning++;
-                            continue;
-                        }
-
                         ofstream out(reffile.c_str());
 
                         if (!out)
                         {
-                            cout << "[!] could not create ref file: " << reffile << endl;
+                            cout << "[!] libdist could not create reference file: " << reffile << endl;
                             g_nError++;
                             break; // goes to next module
                         }
-                        /*
-                        out << "#ifdef __USE_STDAFX__" << endl;
-                        out << "#include \"stdafx.h\"" << endl;
-                        out << "#endif" << endl << endl;
-                        */
+
+						out << "// NOTE: This file is autogenerated by libdist. Do not modify it directly" << endl << endl;
 
                         out << "#include \"" << fixed_pathfile << "\"" << endl;
+
                         out.close();
 
                         cout << "[>] created reference module: " << reffile << endl;
@@ -322,11 +373,6 @@ void act_upon_modules(int nActType)
                     // release files
                     else if (nActType == at_rel)
                     {
-                        if (!file_exists(pathfile.c_str()))
-                        {
-                            cout << "[!] path file " << pathfile << " not found" << endl;
-                            continue;
-                        }
                         if (!copy_file(pathfile.c_str(), reffile.c_str()))
                             cout << "[!] could not release to " << reffile << endl;
                         else
@@ -334,22 +380,8 @@ void act_upon_modules(int nActType)
                     }
                     else if (nActType == at_hardlink)
                     {
-                        if (!file_exists(pathfile.c_str()))
-                        {
-                            cout << "[!] path file " << pathfile << " not found" << endl;
-                            continue;
-                        }
 
-                        std::string cmd;
-
-                        if (file_exists(reffile.c_str()))
-                        {
-                            cmd = "del " + reffile;
-                            system(cmd.c_str());
-                        }
-
-                        cmd = "fsutil hardlink create \"" + reffile + "\" \"" + pathfile + "\">nul";
-                        system(cmd.c_str());
+						create_hardlink(reffile, pathfile);
 
                         if (file_exists(reffile.c_str()))
                             cout << "[>] hardlinked with " << reffile << endl;
@@ -357,6 +389,12 @@ void act_upon_modules(int nActType)
                             cout << "[!] could not hardlink with " << reffile << endl;
                     }
                 } // extensions loop
+
+                if (not_found_count == MODULE_EXTENSIONS_COUNT)
+                {
+                    cout << "[!] libdist did not find any file related to the module '" << module << "'" << endl;
+                    g_nError++;
+                }
             } // list of modules in same path/ref/
         } // refs in same path loop
     } // refs loop
@@ -367,14 +405,16 @@ int main(int argc, char *argv[])
 {
     if (argc < 3)
     {
-        cout
-            << libdistversion << endl
-            << "usage: libdist module.ini action" << endl
-            << "action can be: 'make', 'hardlink' or 'rel'" << endl;
+        cout << libdistversion << endl
+             << "usage: libdist module.ini action [options]" << endl
+             << "action can be: 'make', 'hardlink' or 'rel'" << endl
+			 << "options:" << endl
+			 << "  -verbose (off by default)" << endl;
+
         return 1;
     }
 
-    int act_type;
+    action_types_e act_type;
     const char *act_type_str;
     if (_stricmp(argv[2], "rel") == 0)
     {
@@ -392,6 +432,12 @@ int main(int argc, char *argv[])
         act_type_str = "hardlinking";
     }
 
+	for (int iarg = 3; iarg < argc; ++iarg)
+	{
+		if (strcmp(argv[iarg], "-verbose") == 0)
+			g_b_verbose = true;
+	}
+
     cout << "[i] " << libdistversion << " " << act_type_str << "..." << endl;
 
     if (!parse_module_file(argv[1]))
@@ -402,6 +448,7 @@ int main(int argc, char *argv[])
 
     act_upon_modules(act_type);
 
-    cout << "Completed with " << g_nWarning << " warning(s) " << g_nError << " error(s)" << endl;
-    return 0;
+    cout << endl << "Completed with " << g_nWarning << " warning(s) " << g_nError << " error(s)" << endl;
+
+    return g_nError == 0 ? 0 : -g_nError;
 }
